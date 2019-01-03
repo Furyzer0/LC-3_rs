@@ -1,0 +1,15 @@
+[package]
+name = "LC3_rs"
+version = "0.1.0"
+authors = ["zer0"]
+edition = "2018"
+links = "platform"
+build = "build.rs"
+
+[dependencies]
+enum-primitive-derive = "^0.1"
+num-traits = "^0.1"
+libc = "0.2.0"
+
+[build-dependencies.cc]
+git = "https://github.com/alexcrichton/cc-rs"
