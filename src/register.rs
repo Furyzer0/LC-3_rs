@@ -4,8 +4,9 @@ use num_traits::ToPrimitive;
 
 pub struct Registers([u16; 10]);
 
-const PC: usize = 8;
-const COND: usize = 9;
+pub const R_7: usize = 7;
+pub const PC: usize = 8;
+pub const COND: usize = 9;
 const PC_START: u16 = 0x3000;
 
 #[repr(u16)]
