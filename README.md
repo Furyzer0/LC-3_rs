@@ -10,10 +10,10 @@
 Run the program with the desired `.obj` file as argument
 
 # Crates
-## enum-primitive-derive
+## Enum_primitive_derive
 Allows using enums in c style
-## libc
-I was lazy and used c functions to implement parts that are not related to emulation
+## Libc
+I was lazy and used some c functions to implement parts that are not related to emulation
 
 # Credits
 This project followed this [tutorial](https://justinmeiners.github.io/lc3-vm/).

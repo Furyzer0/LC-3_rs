@@ -1,4 +1,5 @@
 mod opcode;
+mod register;
 
 use enum_primitive_derive::Primitive;
 use libc;
@@ -7,6 +8,7 @@ use std::io::{self, Read, Write};
 use std::env;
 use std::fs::File;
 use self::opcode::{OpCode, Trap};
+use self::register::Registers;
 
 const R_7: usize = 7;
 const PC: usize = 8;
@@ -14,25 +16,6 @@ const COND: usize = 9;
 const MAX_MEMORY: usize = std::u16::MAX as usize;
 const MR_KBSR: usize = 0xFE00;
 const MR_KBDR: usize = 0xFE02;
-
-#[repr(u16)]
-#[derive(Primitive)]
-enum CondFlag {
-    POS = 0b_001,
-    ZRO = 0b_010,
-    NEG = 0b_100,
-}
-
-// Are unwraps safe?
-fn update_flags(reg_value: u16) -> u16 {
-    if reg_value == 0 {
-        CondFlag::ZRO.to_u16().unwrap()
-    } else if (reg_value >> 15) == 1 {
-        CondFlag::NEG.to_u16().unwrap()
-    } else {
-        CondFlag::POS.to_u16().unwrap()
-    }
-} 
 
 // TODO: struct Memory { ... }
 
@@ -54,6 +37,7 @@ fn mem_write(memory: &mut [u16; MAX_MEMORY], adress: u16, value: u16) {
     memory[adress as usize] = value
 }
 
+// Because LC-3 files are little endian
 fn swap16(arr: &[u8]) -> u16 {
     ((arr[0] as u16) << 8) | (arr[1] as u16)
 }
@@ -90,7 +74,7 @@ fn signed_sum(a: u16, b: u16) -> u16 {
 }
 
 fn main() {
-    let mut regs = [0u16; 10];
+    let mut regs = Registers::new();
     let mut memory = [0u16; MAX_MEMORY];
     let mut running = true;
 
@@ -107,45 +91,44 @@ fn main() {
         connect();
         disable_input_buffering();
     }
-    regs[PC] = 0x3000; // starting point
 
     while running {
         let instr = mem_read(&mut memory, regs[PC]);
         let opcode = OpCode::parse(instr);
-        //println!("opcode: {:?}, PC: {:x}", opcode, regs[PC]);
-        regs[PC] += 1;
+        //println!("PC: {:x}, opcode: {:?}", regs[PC], opcode);
+        *regs.pc_reg() += 1;
         match opcode {
             OpCode::AddReg {
                 dest_reg,
                 src_reg1,
                 src_reg2,
             } => { 
-                regs[dest_reg as usize] = signed_sum(regs[src_reg1 as usize], regs[src_reg2 as usize]);
-                regs[COND] = update_flags(regs[dest_reg as usize]);
+                regs[dest_reg] = signed_sum(regs[src_reg1], regs[src_reg2]);
+                regs.update_cond_flags(dest_reg);
             },
             OpCode::AddImm {
                 dest_reg,
                 src_reg,
                 imm_value,
             } => { 
-                regs[dest_reg as usize] = signed_sum(regs[src_reg as usize], imm_value);
-                regs[COND] = update_flags(regs[dest_reg as usize]);
+                regs[dest_reg] = signed_sum(regs[src_reg], imm_value);
+                regs.update_cond_flags(dest_reg);
             },
             OpCode::AndReg {
                 dest_reg,
                 src_reg1,
                 src_reg2,
             } => {
-                regs[dest_reg as usize] = regs[src_reg1 as usize] & regs[src_reg2 as usize];
-                regs[COND] = update_flags(regs[dest_reg as usize]);
+                regs[dest_reg] = regs[src_reg1] & regs[src_reg2];
+                regs.update_cond_flags(dest_reg);
             },
             OpCode::AndImm {
                 dest_reg,
                 src_reg,
                 imm_value,
             } => {
-                regs[dest_reg as usize] = regs[src_reg as usize] & imm_value;
-                regs[COND] = update_flags(regs[dest_reg as usize]);
+                regs[dest_reg] = regs[src_reg] & imm_value;
+                regs.update_cond_flags(dest_reg);
             },
             OpCode::Br {
                 flags,
@@ -155,7 +138,7 @@ fn main() {
             },
             OpCode::Jmp {
                 reg
-            } => regs[PC] = regs[reg as usize],
+            } => regs[PC] = regs[reg],
             OpCode::Jsr {
                 offset
             } => {
@@ -166,63 +149,63 @@ fn main() {
                 reg
             } => {
                 regs[R_7] = regs[PC];
-                regs[PC] = regs[reg as usize];
+                regs[PC] = regs[reg];
             }, 
             OpCode::Ld {
                 reg,
                 offset,
             } => {
-                regs[reg as usize] = mem_read(&mut memory, signed_sum(regs[PC], offset));
-                regs[COND] = update_flags(regs[reg as usize]);
+                regs[reg] = mem_read(&mut memory, signed_sum(regs[PC], offset));
+                regs.update_cond_flags(reg);
             },
             OpCode::Ldi {
                 reg,
                 offset,
             } => {
                 let adress = mem_read(&mut memory, signed_sum(regs[PC], offset));
-                regs[reg as usize] = mem_read(&mut memory, adress);
-                regs[COND] = update_flags(regs[reg as usize]);
+                regs[reg] = mem_read(&mut memory, adress);
+                regs.update_cond_flags(reg);
             },
             OpCode::Ldr {
                 dest_reg,
                 src_reg,
                 offset,
             } => {
-                regs[dest_reg as usize] = mem_read(&mut memory, signed_sum(regs[src_reg as usize], offset));
-                regs[COND] = update_flags(regs[dest_reg as usize]);
+                regs[dest_reg] = mem_read(&mut memory, signed_sum(regs[src_reg], offset));
+                regs.update_cond_flags(dest_reg);
             },
             OpCode::Lea {
                 reg,
                 offset
             } => {
-                regs[reg as usize] = signed_sum(regs[PC], offset);
-                regs[COND] = update_flags(regs[reg as usize]);
+                regs[reg] = signed_sum(regs[PC], offset);
+                regs.update_cond_flags(reg);
             },
             OpCode::Not {
                 dest_reg,
                 src_reg,
             } => {
-                regs[dest_reg as usize] = !regs[src_reg as usize];
-                regs[COND] = update_flags(regs[dest_reg as usize]);
+                regs[dest_reg] = !regs[src_reg];
+                regs.update_cond_flags(dest_reg);
             },
             OpCode::St {
                 reg, 
                 offset,
-            } => mem_write(&mut memory, signed_sum(regs[PC], offset), regs[reg as usize]),
+            } => mem_write(&mut memory, signed_sum(regs[PC], offset), regs[reg]),
             OpCode::Sti {
                 reg,
                 offset,
             } => {
                 let adress = mem_read(&mut memory, signed_sum(regs[PC], offset));
-                mem_write(&mut memory, adress, regs[reg as usize]);
+                mem_write(&mut memory, adress, regs[reg]);
             }, 
             OpCode::Str {
                 src_reg,
                 base_reg,
                 offset,
             } => { 
-                let adress = signed_sum(regs[base_reg as usize], offset);
-                mem_write(&mut memory, adress, regs[src_reg as usize]);
+                let adress = signed_sum(regs[base_reg], offset);
+                mem_write(&mut memory, adress, regs[src_reg]);
             },
             OpCode::Trap(trap) => match trap {
                 Trap::GETC => unsafe {
